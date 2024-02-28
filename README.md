@@ -34,9 +34,9 @@ i.e., draw a digit D from [MNIST](https://yann.lecun.com/exdb/mnist) and change 
 $$Y = H(D-5)$$
 
 #### Causal Model
-<div style="text-align:center;">
-    <img src="./img/causal_model.png" alt="Causal Model" width="200">
-</div>
+<p align="center">
+  <img src="./img/causal_model.png" alt="Causal Model" width="400"/>
+</p>
 
 
 #### Example
@@ -45,10 +45,15 @@ $$Y = H(D-5)$$
 ## Results
 
 ### RCT: Random Subsampling
-![Example Image](./results/CausalMNIST/random/boxplot_ead.png)
+<p align="center">
+  <img src="./results/CausalMNIST/random/boxplot_ead.png" alt="Example Image" width="600"/>
+</p>
+
 ### RCT: Biased Subsampling
 Describe Subsampling criteria.
-![Example Image](./results/CausalMNIST/biased/boxplot_ead.png)
+<p align="center">
+  <img src="./results/CausalMNIST/biased/boxplot_ead.png" alt="Example Image" width="600"/>
+</p>
 
 
 
