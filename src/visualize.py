@@ -1,13 +1,14 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def visualize_n_digits(dataset, n=36):
+def visualize_n_digits(dataset, n=36, save=False):
     '''
     Visualize first n images from the dataset.
 
     Args:
         dataset: torch.utils.data.Dataset
         n: int
+        save: bool
     '''
     if n < 6:
         columns = n
@@ -23,6 +24,8 @@ def visualize_n_digits(dataset, n=36):
         ax.append(fig.add_subplot(rows, columns, i + 1))
         ax[-1].set_title(f"B={label[0]}; P={label[1]} D={int(label[2])}; Y={label[3]}")  
         plt.imshow(img)
+    if save: 
+        plt.savefig(f'./results/CausalMNIST/{dataset.subsampling}/example.png', bbox_inches='tight')
     plt.show()  
 
 
