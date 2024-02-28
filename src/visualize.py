@@ -39,20 +39,15 @@ def boxplot_ead(results, subsampling, save=False, path='./results/CausalMNIST/')
         save: bool
         path: str
     '''
-    EAD_s = results[results['dataset'] == 'train']['EAD'].rename(r'EAD$_E^s$')
-    EAD_all = results[results['dataset'] == 'all']['EAD'].rename(r'EAD$_E$')
-    EAD_prob = results[results['dataset'] == 'all']['EAD_prob'].rename(r'EAD$_{\hat{Y}}$')
-    EAD_binary = results[results['dataset'] == 'all']['EAD_binary'].rename(r'EAD$_{\hat{Y}^*}$')
+    EAD_s = results[results['dataset'] == 'train']['EAD'].rename(r'EAD$_{B,Y}^s$')
+    EAD_all = results[results['dataset'] == 'all']['EAD'].rename(r'EAD$_{B,Y}$')
+    EAD_prob = results[results['dataset'] == 'all']['EAD_prob'].rename(r'EAD$_{B,\hat{Y}}$')
+    EAD_binary = results[results['dataset'] == 'all']['EAD_binary'].rename(r'EAD$_{B,\hat{Y}^*}$')
 
     plt.figure(figsize=(8, 5))
     sns.boxplot(data=[EAD_s, EAD_all, EAD_prob, EAD_binary])
     plt.axhline(y=0.25, color='r', linestyle='--')
-    if subsampling == "random":
-        plt.title('Random Subsampling (RCT)')
-    elif subsampling == "biased":    
-        plt.title('Biased Subsampling (observational)')
-    else:
-        raise ValueError('Subsampling must be "random" or "biased"')
+    plt.title(f'RCT with {subsampling} subsampling')
     if save:
         plt.savefig(path + f'{subsampling}/boxplot_ead.png', dpi=300, bbox_inches='tight')
     else:
