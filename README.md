@@ -1,8 +1,8 @@
 # CausalMNIST
-New Benchmark for Treatment Effect Estimation with higher dimensional data
+New Benchmark for Supervised Treatment Effect Estimation with higher dimensional data
 
-## Introduction
-Describe the project here.
+## Problem
+40000+ digits are hand-written on a colored background (green or red) and with a colored pen (white or black). The background color is assigned at random (RCT), but only 20% of the images are labelled. The labelled subsampled is sampled either at random, or inducing some biases and the ultimate goal is to estimate the average treatment effect of the background color on the digit value.
 
 ## Structural Causal Model
 #### Noises
@@ -32,6 +32,12 @@ i.e., draw a digit D from [MNIST](https://yann.lecun.com/exdb/mnist) and change 
 
 **Step 5:** Define outcome variable (*1: high-value digit, 0: low-value digit*)
 $$Y = H(D-5)$$
+
+#### Causal Model
+<div style="text-align:center;">
+    <img src="./img/causal_model.png" alt="Causal Model" width="200">
+</div>
+
 
 #### Example
 ![Example Image](./results/CausalMNIST/biased/example.png)
