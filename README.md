@@ -1,5 +1,5 @@
 # CausalMNIST
-New Benchmark for Supervised Treatment Effect Estimation with higher dimensional data
+New Benchmark for *Supervised Treatment Effect Estimation* with higher dimensional data
 
 ## Problem
 40000+ digits are hand-written on a colored background (green or red) and with a colored pen (white or black). The background color is assigned at random (RCT), but only 20% of the images are labelled. The labelled subsampled is sampled either at random, or inducing some biases and the ultimate goal is to estimate the average treatment effect of the background color on the digit value.
