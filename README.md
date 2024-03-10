@@ -2,7 +2,8 @@
 New Benchmark for *Supervised Treatment Effect Estimation* with higher dimensional data
 
 ## Problem
-40000+ digits are hand-written on a colored background (green or red) and with a colored pen (white or black). The background color is assigned at random (RCT), but only 20% of the images are labelled. The labelled subsampled is sampled either at random, or inducing some biases and the ultimate goal is to estimate the average treatment effect of the background color on the digit value.
+40000+ digits D are hand-written (X) on a colored background B (green or red) and with a colored pen P (white or black). The background color is assigned randomly (RCT), but only 20% of the images are labeled. The labeled subsampled is sampled either randomly or inducing some biases, and the ultimate goal is to estimate the average treatment effect of the background color on the digit value Y. In formula, we aim to identify and estimate:  $$ATE:=\mathbb{E}[Y|do(B=1)]-\mathbb{E}[Y|do(B=1)]$$
+
 
 ## Structural Causal Model
 #### Noises
