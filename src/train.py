@@ -2,9 +2,59 @@ import torch
 import torch.nn.functional as F
 from torchvision import transforms
 import torch.optim as optim
+from sklearn.metrics import balanced_accuracy_score, accuracy_score
 
 from dataset import CausalMNIST
 from models import ConvNet
+
+def performances_val(model, data_loader, verbose=False, device = 'cpu'):
+    model.eval()
+    with torch.no_grad():
+        images = torch.stack([image for image, _ in data_loader.dataset])
+        output = model(images)
+        y_pred_probs = torch.sigmoid(output)
+        y_pred_bin = torch.where(torch.gt(output, torch.Tensor([0.0]).to(device)),
+                             torch.Tensor([1.0]).to(device),
+                             torch.Tensor([0.0]).to(device))  
+        labels = torch.tensor([label for _, label in data_loader.dataset])
+        y = labels[:,3].float()
+        t = labels[:,0]
+        ead = torch.mean(y[t==1]) - torch.mean(y[t==0])
+        ead_prob = torch.mean(y_pred_probs[t==1]) - torch.mean(y_pred_probs[t==0])
+        #ead_binary = torch.mean(y_pred_bin[t==1]) - torch.mean(y_pred_bin[t==0])
+        TEB = ead_prob - ead
+        loss = F.binary_cross_entropy_with_logits(output, y)
+        acc = accuracy_score(y, y_pred_bin)
+        bacc = balanced_accuracy_score(y, y_pred_bin)
+        
+        if verbose:
+            print(f'Validation set: Average loss: {loss.item():.4f}, Accuracy: {acc:.2f}, Balanced Accuracy: {bacc:.2f}, TEB: {TEB:.2f}')
+    return loss.item(), acc.item(), bacc.item(), TEB.item()
+
+def performances_all(model, data_loader, verbose=False, device = 'cpu'):  
+    model.eval()
+    with torch.no_grad():
+        images = torch.stack([image for image, _ in data_loader.dataset])
+        output = model(images)
+        y_pred_probs = torch.sigmoid(output)
+        y_pred_bin = torch.where(torch.gt(output, torch.Tensor([0.0]).to(device)),
+                             torch.Tensor([1.0]).to(device),
+                             torch.Tensor([0.0]).to(device))  
+        labels = torch.tensor([label for _, label in data_loader.dataset])
+        y = labels[:,3].float()
+        t = labels[:,0]
+        ead = torch.mean(y[t==1]) - torch.mean(y[t==0])
+        ead_prob = torch.mean(y_pred_probs[t==1]) - torch.mean(y_pred_probs[t==0])
+        ead_binary = torch.mean(y_pred_bin[t==1]) - torch.mean(y_pred_bin[t==0])
+        ATE = 0.3
+        TEB = ead_prob - ATE
+        TEB_bin = ead_binary - ATE
+        acc = accuracy_score(y, y_pred_bin)
+        bacc = balanced_accuracy_score(y, y_pred_bin)
+        
+        if verbose:
+            print(f'All set: Accuracy: {acc:.2f}, Balanced Accuracy: {bacc:.2f}, TEB: {TEB:.2f}, TEB_bin: {TEB_bin:.2f}, EAD: {ead:.2f}')
+    return acc.item(), bacc.item(), TEB.item(), TEB_bin.item(), ead.item()
 
 
 def evaluate(model, device, loader, verbose, set_name="test set"):
@@ -27,8 +77,8 @@ def evaluate(model, device, loader, verbose, set_name="test set"):
             output = model(data)
             loss += F.binary_cross_entropy_with_logits(output, target, reduction='sum').item() 
             pred = torch.where(torch.gt(output, torch.Tensor([0.0]).to(device)),
-                                torch.Tensor([1.0]).to(device),
-                                torch.Tensor([0.0]).to(device))  
+                               torch.Tensor([1.0]).to(device),
+                               torch.Tensor([0.0]).to(device))  
             correct += pred.eq(target.view_as(pred)).sum().item()
 
     loss /= len(loader.dataset)
@@ -96,7 +146,7 @@ def train_epoch(model, device, train_loader, optimizer, epoch, verbose):
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader), loss.item()))
 
-def training(finetuning=False, force_generation=False, subsampling="random", 
+def training(finetuning=False, force_generation=False, subsampling="random", train_ratio=0.02,
           normalize=False, verbose=True):
     '''
     Train the model on the CausalMNIST dataset.
@@ -116,6 +166,7 @@ def training(finetuning=False, force_generation=False, subsampling="random",
                        env='all', 
                        transform=transforms.ToTensor(),
                        force_generation=force_generation,
+                       train_ratio=train_ratio,
                        subsampling=subsampling,
                        verbose=verbose)
     model = ConvNet().to(device)

@@ -33,7 +33,8 @@ class CausalMNIST(datasets.VisionDataset):
   def __init__(self, 
                root='./data', 
                env='all', 
-               transform=None, 
+               transform=None,
+               train_ratio=0.05, 
                target_transform=None, 
                force_generation=False,
                force_split=False,
@@ -48,6 +49,7 @@ class CausalMNIST(datasets.VisionDataset):
     self.force_split = force_split
     self.subsampling = subsampling
     self.verbose = verbose
+    self.train_ratio = train_ratio
 
     self.prepare_colored_mnist()
     if env in ['train', 'val', 'test']:
@@ -91,38 +93,54 @@ class CausalMNIST(datasets.VisionDataset):
       if self.verbose: print('Generating Causal MNIST')
       train_mnist = datasets.mnist.MNIST(self.root, train=True, download=True)
 
-      dataset = []
-
-      n = 0
-      p_b = 0.5
-
       images = train_mnist.data
       labels = train_mnist.targets
-      # split images in 10 datasets (1 per label from 0 to 9)
-      images_ordered = []
-      for label in range(10):
-        images_ordered.append(images[labels == label])
+      dataset = []
 
-      flag = True
-      while flag: 
-        n_b = np.random.binomial(1, p_b)
-        n_p = np.random.uniform(0, 2)
-        n_d = np.random.uniform(0, 10)
+      p_B = 0.5 # if change, fix a,b,c,d according to the law of total probability
+      p_P = 0.5 # if change, fix a,b,c,d according to the law of total probability
+      threshold = 3
+      p_Y = (9-threshold)/10
+      a = p_Y + 0.2
+      b = p_Y - 0.2
+      c = p_Y + 0.1
+      d = p_Y - 0.1
+      self.ATE = (a-b)*p_P + (c-d)*(1-p_P)
 
-        B = n_b # (0=red, 1=green)
-        if B:
-          D = int(np.sqrt(n_d*10))
+      for (image, label) in zip(images, labels):
+        D  = label
+        Y = 1 if D > threshold else 0
+        if Y:
+          p = [a*(p_B*p_P)/p_Y, b*((1-p_B)*p_P)/p_Y, c*(p_B*(1-p_P))/p_Y, d*((1-p_B)*(1-p_P))/p_Y]
+          aux = np.random.choice([1, 2, 3, 4], p=p)
+          if aux==1:
+            B = 1
+            P = 1
+          elif aux==2:
+            B = 0
+            P = 1
+          elif aux==3:
+            B = 1
+            P = 0
+          else:
+            B = 0
+            P = 0
         else:
-          D = int(n_d)
-        P = 1 if (B + D/9 - n_p)>0 else 0 # (0=black, 1=white) 
-        Y = 1 if D > 4 else 0
-
-        image = images_ordered[D][0]
-        images_ordered[D] = images_ordered[D][1:]
+          p = [(1-a)*(p_B*p_P)/(1-p_Y), (1-b)*((1-p_B)*p_P)/(1-p_Y), (1-c)*(p_B*(1-p_P))/(1-p_Y), (1-d)*((1-p_B)*(1-p_P))/(1-p_Y)]
+          aux = np.random.choice([1, 2, 3, 4], p=p)
+          if aux==1:
+            B = 1
+            P = 1
+          elif aux==2:
+            B = 0
+            P = 1
+          elif aux==3:
+            B = 1
+            P = 0
+          else:
+            B = 0
+            P = 0
         X = color_grayscale_arr(np.array(image), background=B, pen=P)
-        if len(images_ordered[D]) == 0:
-          flag = False
-        
         dataset.append((Image.fromarray(X), (B, P, D, Y)))
 
       if not os.path.exists(causal_mnist_dir):
@@ -140,8 +158,8 @@ class CausalMNIST(datasets.VisionDataset):
 
       np.random.shuffle(dataset)
       n = len(dataset)
-      n_train = int(0.15 * n)
-      n_val = int(0.05 * n)
+      n_train = int(self.train_ratio * n)
+      n_val = int(self.train_ratio * n)
       
       if self.subsampling=="random":
         train = dataset[:n_train]
@@ -156,54 +174,27 @@ class CausalMNIST(datasets.VisionDataset):
         n_val_temp_p0 = 0
         n_val_temp_p1 = 0
         for i in range(n):
-          if dataset[i][1][1] == 1:
-            if n_train_temp_p1 < n_train*0.9:
+          if dataset[i][1][1] == 0:
+            if n_train_temp_p1 < n_train*1:
               train.append(dataset[i])
               n_train_temp_p1 += 1
-            elif n_val_temp_p1 < n_val*0.8:
+            elif n_val_temp_p1 < n_val*0.5:
               val.append(dataset[i])
               n_val_temp_p1 += 1
             else:
               test.append(dataset[i])
           else:
-            if n_train_temp_p0 < n_train*0.1:
+            if n_train_temp_p0 < n_train*0:
               train.append(dataset[i])
               n_train_temp_p0 += 1
-            elif n_val_temp_p0 < n_val*0.2:
+            elif n_val_temp_p0 < n_val*0.5:
               val.append(dataset[i])
               n_val_temp_p0 += 1
             else:
               test.append(dataset[i])
-          # n_train_temp = 0
-          # n_val_temp = 0
-          # n_temp = 0
-          # for i in range(n):
-          # if  np.random.binomial(1, 0.5):
-          #   if dataset[i][1][0] == 1 and n_train_temp < n_train:
-          #     if dataset[i][1][1] == 0:
-          #       train.append(dataset[i])
-          #       n_train_temp += 1
-          #     else:
-          #       test.append(dataset[i])
-          #   else:
-          #     if dataset[i][1][1] == 1 and n_val_temp < n_val:
-          #       val.append(dataset[i])
-          #       n_val_temp += 1
-          #     else:
-          #       test.append(dataset[i])
-          # else: 
-          #   if dataset[i][1][0] == 0 and n_train_temp < n_train:
-          #     if dataset[i][1][1] == 1:
-          #       train.append(dataset[i])
-          #       n_train_temp += 1
-          #     else:
-          #       test.append(dataset[i])
-          #   else:
-          #     if dataset[i][1][1] == 0 and n_val_temp < n_val:
-          #       val.append(dataset[i])
-          #       n_val_temp += 1
-          #     else:
-          #       test.append(dataset[i])
+        np.random.shuffle(train)
+        np.random.shuffle(val)
+        np.random.shuffle(test)
       else:
         raise ValueError("Subsampling method not recognized")
       

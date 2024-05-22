@@ -22,8 +22,10 @@ def visualize_n_digits(dataset, n=36, save=False):
         img, label = dataset[i]
         plt.rc('font', size=8)
         ax.append(fig.add_subplot(rows, columns, i + 1))
-        ax[-1].set_title(f"B={label[0]}; P={label[1]} D={int(label[2])}; Y={label[3]}")  
+        ax[-1].set_title(f"B={label[0]}; P={label[1]}; Y={label[3]}")  #D={int(label[2])}; Y={label[3]}")  
         plt.imshow(img)
+        plt.xticks([])
+        plt.yticks([])
     if save: 
         plt.savefig(f'./results/CausalMNIST/{dataset.subsampling}/example.png', bbox_inches='tight')
     plt.show()  
