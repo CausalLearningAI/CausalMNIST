@@ -33,4 +33,4 @@ where $P^{n_X}, P^{n_Y}, f_1$ and $f_2$ are unknown and characteristic of MNIST 
 
 
 #### Example
-![Example Image](./results/CausalMNIST/biased/example.png)
+![Example Image](./results/CausalMNIST/random/example.png)

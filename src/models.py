@@ -1,12 +1,12 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
-class Net(nn.Module):
+class MLP(nn.Module):
     '''
     Fully connected neural network with 3 hidden layers.
     '''
     def __init__(self):
-        super(Net, self).__init__()
+        super(MLP, self).__init__()
         self.fc1 = nn.Linear(3 * 28 * 28, 512)
         self.fc2 = nn.Linear(512, 512)
         self.fc3 = nn.Linear(512, 1)
