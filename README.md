@@ -34,3 +34,14 @@ where $P^{n_X}, P^{n_Y}, f_1$ and $f_2$ are unknown and characteristic of MNIST 
 
 #### Example
 ![Example Image](./results/CausalMNIST/random/example.png)
+
+## Reference
+
+```bibtex
+@article{cadei2024smoke,
+  title={Smoke and Mirrors in Causal Downstream Tasks},
+  author={Cadei, Riccardo and Lindorfer, Lukas and Cremer, Sylvia and Schmid, Cordelia and Locatello, Francesco},
+  journal={arXiv preprint arXiv:2405.17151},
+  year={2024}
+}
+```
