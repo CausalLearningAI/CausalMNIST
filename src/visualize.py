@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 
 def visualize_n_digits(dataset, n=36, save=False):
     '''
@@ -17,20 +18,21 @@ def visualize_n_digits(dataset, n=36, save=False):
     rows = n//6 + 1
     fig = plt.figure(figsize=(13, rows*2.7))
     ax = []
-
     for i in range(n):
         img, label = dataset[i]
         plt.rc('font', size=8)
         ax.append(fig.add_subplot(rows, columns, i + 1))
-        ax[-1].set_title(f"B={label[0]}; P={label[1]}; Y={label[3]}")  #D={int(label[2])}; Y={label[3]}")  
+        ax[-1].set_title(f"W={label[0]}; U={label[1]}; T={label[2]}; Y={label[3]}")  
         plt.imshow(img)
         plt.xticks([])
         plt.yticks([])
     if save: 
-        plt.savefig(f'./results/CausalMNIST/{dataset.subsampling}/example.png', bbox_inches='tight')
+        if not os.path.exists(f'./results/CausalMNIST/{dataset.p}'):
+            os.makedirs(f'./results/CausalMNIST/{dataset.p}')
+        plt.savefig(f'./results/CausalMNIST/{dataset.p}/{dataset.exp}.png', bbox_inches='tight')
     plt.show()  
 
-
+# TODO: update this function
 def boxplot_ead(results, subsampling, save=False, path='./results/CausalMNIST/'):
     '''
     Visualize EAD distribution among different models and datasets.
