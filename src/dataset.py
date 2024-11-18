@@ -3,8 +3,9 @@ import os
 
 import torch
 from torchvision import datasets
-from torchvision import transforms
 from PIL import Image
+
+from utils import set_seed
 
 class CausalMNIST(datasets.VisionDataset):
   """
@@ -31,39 +32,33 @@ class CausalMNIST(datasets.VisionDataset):
             split progress (default=True).
   """
   def __init__(self, 
-               root='./data', 
-               env='all', 
-               transform=None,
-               train_ratio=0.05, 
-               target_transform=None, 
+               root='./data',  
+               N=10000,
+               p=0.8,
+               k=9,
+               exp="OS",
                force_generation=False,
-               force_split=False,
-               subsampling="random",
+               seed=0,
                verbose=True):
     super(CausalMNIST, self).__init__(root, 
-                                      transform=transform,
-                                      target_transform=target_transform)
+                                      transform=None,
+                                      target_transform=None)
+
+    self.N = N,
+    self.p = p
+    self.k = k
+    self.exp = exp
+    self.seed = seed
     self.force_generation = force_generation
-    if force_generation:
-      force_split = True
-    self.force_split = force_split
-    self.subsampling = subsampling
     self.verbose = verbose
-    self.train_ratio = train_ratio
-
-    self.prepare_colored_mnist()
-    if env in ['train', 'val', 'test']:
-      self.data_label_tuples = torch.load(os.path.join(self.root, 'CausalMNIST', self.subsampling, env) + '.pt')
-    elif env == 'train_full':
-      self.data_label_tuples = torch.load(os.path.join(self.root, 'CausalMNIST', self.subsampling, 'train.pt')) + \
-                               torch.load(os.path.join(self.root, 'CausalMNIST', self.subsampling, 'val.pt')) 
-    elif env == 'all':
-      self.data_label_tuples = torch.load(os.path.join(self.root, 'CausalMNIST', self.subsampling, 'train.pt')) + \
-                               torch.load(os.path.join(self.root, 'CausalMNIST', self.subsampling, 'val.pt')) + \
-                               torch.load(os.path.join(self.root, 'CausalMNIST', self.subsampling, 'test.pt'))
-    else:
-      raise RuntimeError(f'{env} env unknown. Valid envs are supervised, unsupervised, and all.')
-
+    self.prepare_colored_mnist(N=self.N, p=self.p, k=self.k, exp=self.exp, seed=self.seed)
+    self.data_label_tuples = torch.load(os.path.join(self.root, 'CausalMNIST', str(p), str(seed), f'{exp}.pt'))
+    self.W = torch.Tensor([obs[1] for obs in self.data_label_tuples])[:,0]
+    self.U = torch.Tensor([obs[1] for obs in self.data_label_tuples])[:,1]
+    self.T = torch.Tensor([obs[1] for obs in self.data_label_tuples])[:,2]
+    self.Y = torch.Tensor([obs[1] for obs in self.data_label_tuples])[:,3]
+    self.X = torch.Tensor(np.array([np.array(obs[0]) for obs in self.data_label_tuples]))
+    
   def __getitem__(self, index):
     """
     Args:
@@ -84,135 +79,77 @@ class CausalMNIST(datasets.VisionDataset):
   def __len__(self):
     return len(self.data_label_tuples)
 
-  def prepare_colored_mnist(self):
+  def prepare_colored_mnist(self, N=10000, p=0.8, k=9, exp='OS', seed=0):
     causal_mnist_dir = os.path.join(self.root, 'CausalMNIST')
-    if os.path.exists(os.path.join(causal_mnist_dir, 'dataset.pt')) \
+    if os.path.exists(os.path.join(causal_mnist_dir, str(p), str(seed), f'{exp}.pt')) \
         and not self.force_generation:
-      if self.verbose: print('Causal MNIST dataset already exists')
+      if self.verbose: print(f'Causal MNIST dataset already exists (p={p}, seed={seed})')
     else:
-      if self.verbose: print('Generating Causal MNIST')
+      if self.verbose: print(f'Generating Causal MNIST (p={p}, seed={seed})')
+      if not os.path.exists(os.path.join(causal_mnist_dir, str(p), str(seed))):
+        os.makedirs(os.path.join(causal_mnist_dir, str(p), str(seed)))
       train_mnist = datasets.mnist.MNIST(self.root, train=True, download=True)
-
       images = train_mnist.data
       labels = train_mnist.targets
+
+      set_seed(seed)
       dataset = []
+      W = np.random.binomial(1, p, N)
+      U = np.random.binomial(k, p, N)
 
-      p_B = 0.5 # if change, fix a,b,c,d according to the law of total probability
-      p_P = 0.5 # if change, fix a,b,c,d according to the law of total probability
-      threshold = 3
-      p_Y = (9-threshold)/10
-      a = p_Y + 0.2
-      b = p_Y - 0.2
-      c = p_Y + 0.1
-      d = p_Y - 0.1
-      self.ATE = (a-b)*p_P + (c-d)*(1-p_P)
+      # RCT
+      T = np.random.binomial(1, 0.5, N)
+      Y = np.round((9*(W/3 + U/(3*k) + T/3) + np.random.binomial(9, 0.5, N))/2).astype(int)
+      dataset = []
+      for digit in range(10):
+          idxs = np.where(Y==digit)[0]
+          if len(idxs)==0: 
+              continue
+          images_digit = images[labels==digit]
+          for i, idx in enumerate(idxs):
+              x = images_digit[i]
+              w = W[idx]
+              u = U[idx]
+              t = T[idx]
+              y = Y[idx]
+              x = color_grayscale_arr(np.array(x), background=w, pen=t, pad=4*u)
 
-      for (image, label) in zip(images, labels):
-        D  = label
-        Y = 1 if D > threshold else 0
-        if Y:
-          p = [a*(p_B*p_P)/p_Y, b*((1-p_B)*p_P)/p_Y, c*(p_B*(1-p_P))/p_Y, d*((1-p_B)*(1-p_P))/p_Y]
-          aux = np.random.choice([1, 2, 3, 4], p=p)
-          if aux==1:
-            B = 1
-            P = 1
-          elif aux==2:
-            B = 0
-            P = 1
-          elif aux==3:
-            B = 1
-            P = 0
-          else:
-            B = 0
-            P = 0
-        else:
-          p = [(1-a)*(p_B*p_P)/(1-p_Y), (1-b)*((1-p_B)*p_P)/(1-p_Y), (1-c)*(p_B*(1-p_P))/(1-p_Y), (1-d)*((1-p_B)*(1-p_P))/(1-p_Y)]
-          aux = np.random.choice([1, 2, 3, 4], p=p)
-          if aux==1:
-            B = 1
-            P = 1
-          elif aux==2:
-            B = 0
-            P = 1
-          elif aux==3:
-            B = 1
-            P = 0
-          else:
-            B = 0
-            P = 0
-        X = color_grayscale_arr(np.array(image), background=B, pen=P)
-        dataset.append((Image.fromarray(X), (B, P, D, Y)))
-
-      if not os.path.exists(causal_mnist_dir):
-        os.makedirs(causal_mnist_dir)
-      torch.save(dataset, os.path.join(causal_mnist_dir, 'dataset.pt'))
-
-    if os.path.exists(os.path.join(causal_mnist_dir, self.subsampling, 'train.pt')) \
-        and os.path.exists(os.path.join(causal_mnist_dir, self.subsampling, 'val.pt')) \
-        and os.path.exists(os.path.join(causal_mnist_dir, self.subsampling, 'test.pt')) \
-        and not self.force_split:
-      if self.verbose: print('Causal MNIST dataset environments already exists')
-    else: 
-      if self.verbose: print('Splitting Causal MNIST into train, val and test sets')
-      dataset = torch.load(os.path.join(causal_mnist_dir, 'dataset.pt'))
+              dataset.append((x, (w, u, t, y)))
 
       np.random.shuffle(dataset)
-      n = len(dataset)
-      n_train = int(self.train_ratio * n)
-      n_val = int(self.train_ratio * n)
-      
-      if self.subsampling=="random":
-        train = dataset[:n_train]
-        val = dataset[n_train:n_train+n_val]
-        test = dataset[n_train+n_val:]
-      elif self.subsampling=="biased":
-        train = []
-        val = []
-        test = []
-        n_train_temp_p0 = 0
-        n_train_temp_p1 = 0
-        n_val_temp_p0 = 0
-        n_val_temp_p1 = 0
-        for i in range(n):
-          if dataset[i][1][1] == 0:
-            if n_train_temp_p1 < n_train*1:
-              train.append(dataset[i])
-              n_train_temp_p1 += 1
-            elif n_val_temp_p1 < n_val*0.5:
-              val.append(dataset[i])
-              n_val_temp_p1 += 1
-            else:
-              test.append(dataset[i])
-          else:
-            if n_train_temp_p0 < n_train*0:
-              train.append(dataset[i])
-              n_train_temp_p0 += 1
-            elif n_val_temp_p0 < n_val*0.5:
-              val.append(dataset[i])
-              n_val_temp_p0 += 1
-            else:
-              test.append(dataset[i])
-        np.random.shuffle(train)
-        np.random.shuffle(val)
-        np.random.shuffle(test)
-      else:
-        raise ValueError("Subsampling method not recognized")
-      
-      causal_mnist_dir = os.path.join(causal_mnist_dir, self.subsampling)
-      if not os.path.exists(causal_mnist_dir):
-          os.makedirs(causal_mnist_dir)
-      torch.save(train, os.path.join(causal_mnist_dir, 'train.pt'))
-      torch.save(val, os.path.join(causal_mnist_dir, 'val.pt'))
-      torch.save(test, os.path.join(causal_mnist_dir, 'test.pt'))
+      torch.save(dataset, os.path.join(causal_mnist_dir, str(p), str(seed), 'RCT.pt'))
 
-def color_grayscale_arr(arr, background=True, pen=True):
+      # OS
+      T = np.random.binomial(1, (1+W+U/k)/3, N)
+      Y = np.round((9*(W/4 + U/(2*k) + T/4) + np.random.binomial(9, 0.5, N))/2).astype(int)
+      dataset = []
+      for digit in range(10):
+          idxs = np.where(Y==digit)[0]
+          if len(idxs)==0: 
+              continue
+          images_digit = images[labels==digit]
+          for i, idx in enumerate(idxs):
+              x = images_digit[i]
+              w = W[idx]
+              u = U[idx]
+              t = T[idx]
+              y = Y[idx]
+              x = color_grayscale_arr(np.array(x), background=w, pen=t, pad=4*u)
+
+              dataset.append((x, (w, u, t, y)))
+
+      np.random.shuffle(dataset)
+      torch.save(dataset, os.path.join(causal_mnist_dir, str(p), str(seed), 'OS.pt'))
+
+def color_grayscale_arr(arr, background=True, pen=True, pad=0):
   '''
-  Converts grayscale image changing the background and pen color.
+  Converts grayscale image changing the background and pen color and zoom.
   
     Args:
         arr: np.array
         background: bool
         pen: bool
+        pad: int
     Returns:
         np.array
   '''
@@ -221,6 +158,7 @@ def color_grayscale_arr(arr, background=True, pen=True):
   h, w = arr.shape
   arr = np.reshape(arr, [h, w, 1])
   if background: # green
+    color = [0, 255, 0]
     if pen: # white
       arr = np.concatenate([arr,
                             255*np.ones((h, w, 1), dtype=dtype),
@@ -231,6 +169,7 @@ def color_grayscale_arr(arr, background=True, pen=True):
                             np.zeros((h, w, 1), dtype=dtype)], axis=2)
 
   else: # red
+    color = [255, 0, 0]
     if pen: # white
       arr = np.concatenate([255*np.ones((h, w, 1), dtype=dtype),
                             arr,
@@ -239,4 +178,11 @@ def color_grayscale_arr(arr, background=True, pen=True):
       arr = np.concatenate([255*np.ones((h, w, 1), dtype=dtype)-arr,
                             np.zeros((h, w, 1), dtype=dtype),
                             np.zeros((h, w, 1), dtype=dtype)], axis=2)
-  return arr
+  if pad>0:
+    arr = np.pad(arr, ((pad, pad), (pad, pad), (0, 0)), 'constant', constant_values=0)
+    arr[:pad, :, :] = color  
+    arr[-pad:, :, :] = color
+    arr[:, :pad, :] = color
+    arr[:, -pad:, :] = color
+    arr = Image.fromarray(arr.astype(np.uint8)).resize((28, 28))
+  return np.array(arr)
