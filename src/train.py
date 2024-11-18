@@ -57,38 +57,6 @@ def performances_all(model, data_loader, verbose=False, device = 'cpu'):
     return acc.item(), bacc.item(), TEB.item(), TEB_bin.item(), ead.item()
 
 
-def evaluate(model, device, loader, verbose, set_name="test set"):
-    '''
-    Evaluate the model on the given dataset.
-
-    Args:
-        model: torch.nn.Module
-        device: str
-        loader: torch.utils.data.DataLoader
-        verbose: bool
-        set_name: str
-    '''
-    model.eval()
-    loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in loader:
-            data, target = data.to(device), target[3].to(device).float()
-            output = model(data)
-            loss += F.binary_cross_entropy_with_logits(output, target, reduction='sum').item() 
-            pred = torch.where(torch.gt(output, torch.Tensor([0.0]).to(device)),
-                               torch.Tensor([1.0]).to(device),
-                               torch.Tensor([0.0]).to(device))  
-            correct += pred.eq(target.view_as(pred)).sum().item()
-
-    loss /= len(loader.dataset)
-    if verbose:
-        print('Performance on {}: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)'.format(
-            set_name, loss, correct, len(loader.dataset),
-            100. * correct / len(loader.dataset)))
-
-    return 100. * correct / len(loader.dataset)
-
 def compute_ead(model, data_loader, device = 'cpu'):
     '''
     Compute Empirical Associational Difference (EAD) for the given 
@@ -121,33 +89,15 @@ def compute_ead(model, data_loader, device = 'cpu'):
         ead_binary = torch.mean(y_binary[b==1]) - torch.mean(y_binary[b==0])
     return ead, ead_prob, ead_binary
 
-def train_epoch(model, device, train_loader, optimizer, epoch, verbose):
-    '''
-    Train the model for one epoch.
-
-    Args:
-        model: torch.nn.Module
-        device: str
-        train_loader: torch.utils.data.DataLoader
-        optimizer: torch.optim.Optimizer
-        epoch: int
-        verbose: bool
-    '''
-    model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target[3].to(device).float()
-        optimizer.zero_grad()
-        output = model(data)
-        loss = F.binary_cross_entropy_with_logits(output, target)
-        loss.backward()
-        optimizer.step()
-        if batch_idx % 100 == 0 and verbose:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss.item()))
-
-def training(finetuning=False, force_generation=False, subsampling="random", train_ratio=0.02,
-          normalize=False, verbose=True):
+def training(model,
+             dataset, 
+             train_ratio=0.9,
+             epochs=6,
+             lr=0.001,
+             batch_size=64,
+             method='ERM',
+             verbose=True):
+    # TODO: update description
     '''
     Train the model on the CausalMNIST dataset.
     
@@ -162,56 +112,76 @@ def training(finetuning=False, force_generation=False, subsampling="random", tra
     device = torch.device("gpu" if use_gpu else "cpu")
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_gpu else {}
 
-    all = CausalMNIST(root='./data', 
-                       env='all', 
-                       transform=transforms.ToTensor(),
-                       force_generation=force_generation,
-                       train_ratio=train_ratio,
-                       subsampling=subsampling,
-                       verbose=verbose)
-    model = ConvNet().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    if normalize:
-        mean = 0
-        std = 0
-        for img, _ in all:
-            mean += img.mean(dim=(1, 2))
-            std += img.std(dim=(1, 2))
-            mean /= len(all)
-            std /= len(all)
-        model.transformations = transforms.Compose([
-                                    transforms.ToTensor(),
-                                    transforms.Normalize(mean, std)])
-    else:
-        model.transformations = transforms.Compose([transforms.ToTensor()])
-    if finetuning:
-        train_loader = torch.utils.data.DataLoader(
-            CausalMNIST(root='./data', 
-                        env='train',
-                        transform=model.transformations,
-                        subsampling=subsampling,
-                        verbose=verbose),
-            batch_size=64, shuffle=True, **kwargs)
-        
-        val_loader = torch.utils.data.DataLoader(
-            CausalMNIST(root='./data', 
-                        env='val',
-                        transform=model.transformations,
-                        subsampling=subsampling,
-                        verbose=verbose),
-            batch_size=1000, shuffle=True, **kwargs)
-    else:
-        train_loader = torch.utils.data.DataLoader(
-            CausalMNIST(root='./data', 
-                        env='train_full',
-                        transform=model.transformations,
-                        subsampling=subsampling,
-                        verbose=verbose),
-            batch_size=64, shuffle=True, **kwargs)
+    model = model.to(device)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    train = dataset.data_label_tuples[:int(train_ratio*len(dataset))]
+    val = dataset.data_label_tuples[int(train_ratio*len(dataset)):]
+    train_loader = torch.utils.data.DataLoader(train, 
+                                               batch_size=batch_size, 
+                                               shuffle=True, 
+                                               **kwargs)
+    # val_loader = torch.utils.data.DataLoader(val,
+    #                                          batch_size=1000, 
+    #                                          shuffle=True, 
+    #                                          **kwargs)
+    
+    model.train()
+    for epoch in range(epochs):
+        for batch_idx, (image, variables) in enumerate(train_loader):
+            X, y = image.to(device), variables[3].to(device).float()
+            optimizer.zero_grad()
+            output = model(X)
+            # TODO: check loss
+            loss = F.binary_cross_entropy_with_logits(output, y)
+            loss.backward()
+            optimizer.step()
+            if batch_idx % 100 == 0 and verbose:
+                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    epoch, batch_idx * len(X), len(train_loader.dataset),
+                        100. * batch_idx / len(train_loader), loss.item()))
+        # evaluate(model, device, train_loader, verbose, set_name='train')
+        # evaluate(model, device, val_loader, verbose, set_name='val')
 
-    for epoch in range(6):
-        train_epoch(model, device, train_loader, optimizer, epoch, verbose)
-        evaluate(model, device, train_loader, verbose, set_name='train set')
-        if finetuning:
-            evaluate(model, device, val_loader, verbose, set_name='val set')
-    return model
+    # TODO: return best model
+    return model   
+
+def evaluate(model, device, loader, verbose, set_name=""):
+    '''
+    Evaluate the model on the given dataset.
+
+    Args:
+        model: torch.nn.Module
+        device: str
+        loader: torch.utils.data.DataLoader
+        verbose: bool
+        set_name: str
+    '''
+    model.eval()
+
+    # get Acc, Balanced Acc, AD, AF
+    # get Y_hat
+
+
+    loss = 0
+    correct = 0
+    with torch.no_grad():
+        for data, target in loader:
+            data, target = data.to(device), target[3].to(device).float()
+            output = model(data)
+            loss += F.binary_cross_entropy_with_logits(output, target, reduction='sum').item() 
+            pred = torch.where(torch.gt(output, torch.Tensor([0.0]).to(device)),
+                               torch.Tensor([1.0]).to(device),
+                               torch.Tensor([0.0]).to(device))  
+            correct += pred.eq(target.view_as(pred)).sum().item()
+
+    loss /= len(loader.dataset)
+    if verbose:
+        print('Performance on {}: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)'.format(
+            set_name, loss, correct, len(loader.dataset),
+            100. * correct / len(loader.dataset)))
+
+    return 100. * correct / len(loader.dataset)
+
+
+
+
