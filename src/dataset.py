@@ -4,6 +4,7 @@ import os
 import torch
 from torchvision import datasets
 from PIL import Image
+from torchvision import transforms
 
 from utils import set_seed
 
@@ -39,7 +40,7 @@ class CausalMNIST(datasets.VisionDataset):
                exp="OS",
                force_generation=False,
                seed=0,
-               verbose=True):
+               verbose=True,):
     super(CausalMNIST, self).__init__(root, 
                                       transform=None,
                                       target_transform=None)
@@ -52,7 +53,7 @@ class CausalMNIST(datasets.VisionDataset):
     self.force_generation = force_generation
     self.verbose = verbose
     self.prepare_colored_mnist(N=self.N, p=self.p, k=self.k, exp=self.exp, seed=self.seed)
-    self.data_label_tuples = torch.load(os.path.join(self.root, 'CausalMNIST', str(p), str(seed), f'{exp}.pt'))
+    self.data_label_tuples = torch.load(os.path.join(self.root, 'CausalMNIST', str(k), str(p), str(seed), f'{exp}.pt'))
     self.W = torch.Tensor([obs[1] for obs in self.data_label_tuples])[:,0]
     self.U = torch.Tensor([obs[1] for obs in self.data_label_tuples])[:,1]
     self.T = torch.Tensor([obs[1] for obs in self.data_label_tuples])[:,2]
@@ -81,13 +82,13 @@ class CausalMNIST(datasets.VisionDataset):
 
   def prepare_colored_mnist(self, N=10000, p=0.8, k=9, exp='OS', seed=0):
     causal_mnist_dir = os.path.join(self.root, 'CausalMNIST')
-    if os.path.exists(os.path.join(causal_mnist_dir, str(p), str(seed), f'{exp}.pt')) \
+    if os.path.exists(os.path.join(causal_mnist_dir, str(k), str(p), str(seed), f'{exp}.pt')) \
         and not self.force_generation:
-      if self.verbose: print(f'Causal MNIST dataset already exists (p={p}, seed={seed})')
+      if self.verbose: print(f'Causal MNIST dataset already exists (k={k}, p={p}, seed={seed})')
     else:
-      if self.verbose: print(f'Generating Causal MNIST (p={p}, seed={seed})')
-      if not os.path.exists(os.path.join(causal_mnist_dir, str(p), str(seed))):
-        os.makedirs(os.path.join(causal_mnist_dir, str(p), str(seed)))
+      if self.verbose: print(f'Generating Causal MNIST (k={k}, p={p}, seed={seed})')
+      if not os.path.exists(os.path.join(causal_mnist_dir, str(k), str(p), str(seed))):
+        os.makedirs(os.path.join(causal_mnist_dir, str(k), str(p), str(seed)))
       train_mnist = datasets.mnist.MNIST(self.root, train=True, download=True)
       images = train_mnist.data
       labels = train_mnist.targets
@@ -99,28 +100,6 @@ class CausalMNIST(datasets.VisionDataset):
 
       # RCT
       T = np.random.binomial(1, 0.5, N)
-      Y = np.round((9*(W/3 + U/(3*k) + T/3) + np.random.binomial(9, 0.5, N))/2).astype(int)
-      dataset = []
-      for digit in range(10):
-          idxs = np.where(Y==digit)[0]
-          if len(idxs)==0: 
-              continue
-          images_digit = images[labels==digit]
-          for i, idx in enumerate(idxs):
-              x = images_digit[i]
-              w = W[idx]
-              u = U[idx]
-              t = T[idx]
-              y = Y[idx]
-              x = color_grayscale_arr(np.array(x), background=w, pen=t, pad=4*u)
-
-              dataset.append((x, (w, u, t, y)))
-
-      np.random.shuffle(dataset)
-      torch.save(dataset, os.path.join(causal_mnist_dir, str(p), str(seed), 'RCT.pt'))
-
-      # OS
-      T = np.random.binomial(1, (1+W+U/k)/3, N)
       Y = np.round((9*(W/4 + U/(2*k) + T/4) + np.random.binomial(9, 0.5, N))/2).astype(int)
       dataset = []
       for digit in range(10):
@@ -139,7 +118,29 @@ class CausalMNIST(datasets.VisionDataset):
               dataset.append((x, (w, u, t, y)))
 
       np.random.shuffle(dataset)
-      torch.save(dataset, os.path.join(causal_mnist_dir, str(p), str(seed), 'OS.pt'))
+      torch.save(dataset, os.path.join(causal_mnist_dir, str(k), str(p), str(seed), 'RCT.pt'))
+
+      # OS
+      T = np.round((np.random.binomial(3, 0.5, N) + W + U/k)/5)
+      Y = np.round((9*(W/4 + U/(2*k) + T/4) + np.random.binomial(9, 0.5, N))/2).astype(int)
+      dataset = []
+      for digit in range(10):
+          idxs = np.where(Y==digit)[0]
+          if len(idxs)==0: 
+              continue
+          images_digit = images[labels==digit]
+          for i, idx in enumerate(idxs):
+              x = images_digit[i]
+              w = W[idx]
+              u = U[idx]
+              t = T[idx]
+              y = Y[idx]
+              x = color_grayscale_arr(np.array(x), background=w, pen=t, pad=4*u)
+
+              dataset.append((x, (w, u, t, y)))
+
+      np.random.shuffle(dataset)
+      torch.save(dataset, os.path.join(causal_mnist_dir, str(k), str(p), str(seed), 'OS.pt'))
 
 def color_grayscale_arr(arr, background=True, pen=True, pad=0):
   '''
@@ -185,4 +186,4 @@ def color_grayscale_arr(arr, background=True, pen=True, pad=0):
     arr[:, :pad, :] = color
     arr[:, -pad:, :] = color
     arr = Image.fromarray(arr.astype(np.uint8)).resize((28, 28))
-  return np.array(arr)
+  return np.transpose(np.array(arr),(2, 0, 1))
