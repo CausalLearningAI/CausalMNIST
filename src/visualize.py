@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
+import numpy as np
 
 def visualize_n_digits(dataset, n=36, save=False):
     '''
@@ -20,6 +21,7 @@ def visualize_n_digits(dataset, n=36, save=False):
     ax = []
     for i in range(n):
         img, label = dataset[i]
+        img = np.transpose(img,(1,2,0))
         plt.rc('font', size=8)
         ax.append(fig.add_subplot(rows, columns, i + 1))
         ax[-1].set_title(f"W={label[0]}; U={label[1]}; T={label[2]}; Y={label[3]}")  
@@ -27,32 +29,8 @@ def visualize_n_digits(dataset, n=36, save=False):
         plt.xticks([])
         plt.yticks([])
     if save: 
-        if not os.path.exists(f'./results/CausalMNIST/{dataset.p}'):
-            os.makedirs(f'./results/CausalMNIST/{dataset.p}')
-        plt.savefig(f'./results/CausalMNIST/{dataset.p}/{dataset.exp}.png', bbox_inches='tight')
+        if not os.path.exists(f'./results/CausalMNIST/{dataset.k}/{dataset.p}'):
+            os.makedirs(f'./results/CausalMNIST/{dataset.k}/{dataset.p}')
+        plt.savefig(f'./results/CausalMNIST/{dataset.k}/{dataset.p}/{dataset.exp}.png', bbox_inches='tight')
     plt.show()  
 
-# TODO: update this function
-def boxplot_ead(results, subsampling, save=False, path='./results/CausalMNIST/'):
-    '''
-    Visualize EAD distribution among different models and datasets.
-
-    Args:
-        results: pd.DataFrame
-        subsampling: str
-        save: bool
-        path: str
-    '''
-    EAD_s = results[results['dataset'] == 'train']['EAD'].rename(r'EAD$_{B,Y}^s$')
-    EAD_all = results[results['dataset'] == 'all']['EAD'].rename(r'EAD$_{B,Y}$')
-    EAD_prob = results[results['dataset'] == 'all']['EAD_prob'].rename(r'EAD$_{B,\hat{Y}}$')
-    EAD_binary = results[results['dataset'] == 'all']['EAD_binary'].rename(r'EAD$_{B,\hat{Y}^*}$')
-
-    plt.figure(figsize=(8, 5))
-    sns.boxplot(data=[EAD_s, EAD_all, EAD_prob, EAD_binary])
-    plt.axhline(y=0.25, color='r', linestyle='--')
-    plt.title(f'RCT with {subsampling} subsampling')
-    if save:
-        plt.savefig(path + f'{subsampling}/boxplot_ead.png', dpi=300, bbox_inches='tight')
-    else:
-        plt.show()
