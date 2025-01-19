@@ -1,11 +1,11 @@
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-
-from econml.dr import DRLearner
-from econml.dml import LinearDML
+import torch
+from econml.dr import DRLearner, LinearDRLearner
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from xgboost import XGBRegressor, XGBClassifier
 
 class MLP(nn.Module):
     '''
@@ -46,15 +46,31 @@ class ConvNet(nn.Module):
         x = F.relu(self.fc1(x))
         logits = self.fc2(x)#.flatten()
         return logits
+    
+    def cond_exp(self, X):
+        values = torch.tensor(range(10)).float().to(self.device)
+        probs = self.forward(X).softmax(dim=-1)
+        return torch.matmul(probs, values) # [3.5, 4, 8]
 
-def compute_effect(dataset, method="AD", pred=False, total=False, econml=True):
-    if pred:
-        Y = dataset.Y_hat
+def compute_effect(dataset, method="AD", pred=False, total=False, econml=False, train_ratio=1):
+    if train_ratio < 1:
+        n_tr = int(train_ratio*len(dataset))
+        if pred:
+            Y = dataset.Y_hat[:n_tr].astype('int')
+        else:
+            Y = dataset.Y[:n_tr].numpy().astype('int')
+        T = dataset.T[:n_tr].numpy().astype('int')
+        W = dataset.W[:n_tr].numpy()
+        U = dataset.U[:n_tr].numpy()
+
     else:
-        Y = dataset.Y.numpy()
-    T = dataset.T.numpy()
-    W = dataset.W.numpy()
-    U = dataset.U.numpy()
+        if pred:
+            Y = dataset.Y_hat.astype('int')
+        else:
+            Y = dataset.Y.numpy().astype('int')
+        T = dataset.T.numpy().astype('int')
+        W = dataset.W.numpy()
+        U = dataset.U.numpy()
     N = len(Y)
     if total: 
         if len(W.shape) == 1:
@@ -87,13 +103,14 @@ def compute_effect(dataset, method="AD", pred=False, total=False, econml=True):
     #     return PO_T1 - PO_T0
 
     if method == "AIPW":
-        model_propensity = RandomForestClassifier()
-        model_outcome = RandomForestClassifier()
+        model_propensity = XGBClassifier()
+        model_outcome = XGBRegressor()
+        min_propensity = 0.001
         if econml:
-            model = LinearDML(model_t=model_propensity, 
-                              model_y=model_outcome,
-                            discrete_treatment=True,
-                            random_state=1)
+            model = LinearDRLearner(model_propensity=model_propensity, 
+                            model_regression=model_outcome, 
+                            min_propensity=min_propensity,
+                            discrete_outcome=False)
             model.fit(Y=Y, T=T, X=X); 
             return model.ate(X=X)
         else:
@@ -104,6 +121,7 @@ def compute_effect(dataset, method="AD", pred=False, total=False, econml=True):
             mu0 = model_outcome.predict(np.concatenate((X, np.zeros((N, 1))), axis=1))
             mu1 = model_outcome.predict(np.concatenate((X, np.ones((N, 1))), axis=1))
             ps = model_propensity.predict_proba(X)[:, 1]
+            ps = np.clip(ps, min_propensity, 1-min_propensity)
             norm_1 = np.mean(T/ps)
             norm_0 = np.mean((1-T)/(1-ps))
             ite = mu1-mu0 + T * (Y-mu1) / (ps*norm_1) - (1-T) * (Y-mu0) / ((1-ps)*norm_0)
