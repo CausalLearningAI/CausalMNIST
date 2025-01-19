@@ -29,8 +29,8 @@ def visualize_n_digits(dataset, n=36, save=False):
         plt.xticks([])
         plt.yticks([])
     if save: 
-        if not os.path.exists(f'./results/CausalMNIST/{dataset.k}/{dataset.p}'):
-            os.makedirs(f'./results/CausalMNIST/{dataset.k}/{dataset.p}')
-        plt.savefig(f'./results/CausalMNIST/{dataset.k}/{dataset.p}/{dataset.exp}.png', bbox_inches='tight')
+        if not os.path.exists(f'./results/{dataset.e}/{dataset.pW}/{dataset.pU}'):
+            os.makedirs(f'./results/{dataset.e}/{dataset.pW}/{dataset.pU}')
+        plt.savefig(f'./results/{dataset.e}/{dataset.pW}/{dataset.pU}/{dataset.exp}.png', bbox_inches='tight')
     plt.show()  
 
