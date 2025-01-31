@@ -19,6 +19,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 
 def get_parser():
     parser = argparse.ArgumentParser(description='Causal MNIST')
+    parser.add_argument('--clip', type=float, default=0.005, help='Clip propensity')
     parser.add_argument('--e', type=int, default=1, help='Experiment')
     parser.add_argument('--pW', type=float, default=0.5, help='Probability of W (observed confounders)')
     parser.add_argument('--pU', type=float, default=0.5, help='Probability of U (unobserved confounders)')
@@ -52,7 +53,8 @@ def main(args):
                                 exp=args.exp,
                                 verbose=False,
                                 seed=seed,
-                                force_generation=False)
+                                force_generation=False,
+                                clip=args.clip)
             model = ConvNet()
             try:
                 model = training(model, 

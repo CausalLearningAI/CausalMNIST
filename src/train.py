@@ -83,7 +83,7 @@ def training(model,
                 loss = torch.nn.CrossEntropyLoss(reduction='none')(output, y)
                 yvar = variables[4].to(device).float()
                 oprob = variables[5].to(device).float()
-                weight = yvar/oprob#+0.0001
+                weight = yvar/oprob
                 loss = (weight*loss).sum()
             else:
                 loss = torch.nn.CrossEntropyLoss()(output, y)

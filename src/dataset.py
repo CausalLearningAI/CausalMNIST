@@ -43,7 +43,7 @@ class CausalMNIST(datasets.VisionDataset):
                force_generation=False,
                seed=0,
                verbose=True,
-               clip=0.01):
+               clip=0.001):
     super(CausalMNIST, self).__init__(root, 
                                       transform=None,
                                       target_transform=None)
