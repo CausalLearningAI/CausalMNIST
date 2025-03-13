@@ -1,6 +1,8 @@
 */__pycache__
 
 data/
+logs/
+results/
 *.csv
 
 .DS_Store

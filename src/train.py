@@ -3,151 +3,25 @@ import torch.nn.functional as F
 from torchvision import transforms
 import torch.optim as optim
 from sklearn.metrics import balanced_accuracy_score, accuracy_score
+from models import compute_effect
+from itertools import compress
+from torch.utils.tensorboard import SummaryWriter
+import time
+import pandas as pd
 
-from dataset import CausalMNIST
-from models import ConvNet
-
-def performances_val(model, data_loader, verbose=False, device = 'cpu'):
-    model.eval()
-    with torch.no_grad():
-        images = torch.stack([image for image, _ in data_loader.dataset])
-        output = model(images)
-        y_pred_probs = torch.sigmoid(output)
-        y_pred_bin = torch.where(torch.gt(output, torch.Tensor([0.0]).to(device)),
-                             torch.Tensor([1.0]).to(device),
-                             torch.Tensor([0.0]).to(device))  
-        labels = torch.tensor([label for _, label in data_loader.dataset])
-        y = labels[:,3].float()
-        t = labels[:,0]
-        ead = torch.mean(y[t==1]) - torch.mean(y[t==0])
-        ead_prob = torch.mean(y_pred_probs[t==1]) - torch.mean(y_pred_probs[t==0])
-        #ead_binary = torch.mean(y_pred_bin[t==1]) - torch.mean(y_pred_bin[t==0])
-        TEB = ead_prob - ead
-        loss = F.binary_cross_entropy_with_logits(output, y)
-        acc = accuracy_score(y, y_pred_bin)
-        bacc = balanced_accuracy_score(y, y_pred_bin)
-        
-        if verbose:
-            print(f'Validation set: Average loss: {loss.item():.4f}, Accuracy: {acc:.2f}, Balanced Accuracy: {bacc:.2f}, TEB: {TEB:.2f}')
-    return loss.item(), acc.item(), bacc.item(), TEB.item()
-
-def performances_all(model, data_loader, verbose=False, device = 'cpu'):  
-    model.eval()
-    with torch.no_grad():
-        images = torch.stack([image for image, _ in data_loader.dataset])
-        output = model(images)
-        y_pred_probs = torch.sigmoid(output)
-        y_pred_bin = torch.where(torch.gt(output, torch.Tensor([0.0]).to(device)),
-                             torch.Tensor([1.0]).to(device),
-                             torch.Tensor([0.0]).to(device))  
-        labels = torch.tensor([label for _, label in data_loader.dataset])
-        y = labels[:,3].float()
-        t = labels[:,0]
-        ead = torch.mean(y[t==1]) - torch.mean(y[t==0])
-        ead_prob = torch.mean(y_pred_probs[t==1]) - torch.mean(y_pred_probs[t==0])
-        ead_binary = torch.mean(y_pred_bin[t==1]) - torch.mean(y_pred_bin[t==0])
-        ATE = 0.3
-        TEB = ead_prob - ATE
-        TEB_bin = ead_binary - ATE
-        acc = accuracy_score(y, y_pred_bin)
-        bacc = balanced_accuracy_score(y, y_pred_bin)
-        
-        if verbose:
-            print(f'All set: Accuracy: {acc:.2f}, Balanced Accuracy: {bacc:.2f}, TEB: {TEB:.2f}, TEB_bin: {TEB_bin:.2f}, EAD: {ead:.2f}')
-    return acc.item(), bacc.item(), TEB.item(), TEB_bin.item(), ead.item()
-
-
-def evaluate(model, device, loader, verbose, set_name="test set"):
-    '''
-    Evaluate the model on the given dataset.
-
-    Args:
-        model: torch.nn.Module
-        device: str
-        loader: torch.utils.data.DataLoader
-        verbose: bool
-        set_name: str
-    '''
-    model.eval()
-    loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in loader:
-            data, target = data.to(device), target[3].to(device).float()
-            output = model(data)
-            loss += F.binary_cross_entropy_with_logits(output, target, reduction='sum').item() 
-            pred = torch.where(torch.gt(output, torch.Tensor([0.0]).to(device)),
-                               torch.Tensor([1.0]).to(device),
-                               torch.Tensor([0.0]).to(device))  
-            correct += pred.eq(target.view_as(pred)).sum().item()
-
-    loss /= len(loader.dataset)
-    if verbose:
-        print('Performance on {}: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)'.format(
-            set_name, loss, correct, len(loader.dataset),
-            100. * correct / len(loader.dataset)))
-
-    return 100. * correct / len(loader.dataset)
-
-def compute_ead(model, data_loader, device = 'cpu'):
-    '''
-    Compute Empirical Associational Difference (EAD) for the given 
-    model and data_loader.
-
-    Args:
-        model: torch.nn.Module
-        data_loader: torch.utils.data.DataLoader
-        device: str
-    '''
-    model.eval()
-    y = torch.tensor([])
-    b = torch.tensor([])
-    y_prob = torch.tensor([])
-    y_binary = torch.tensor([])
-    with torch.no_grad():
-        for data, target in data_loader:
-            X_b, y_b = data.to(device), target[3].to(device).float()
-            b_b = target[0].to(device).float()
-            y_prob_b = torch.sigmoid(model(X_b))
-            y_binary_b = torch.where(y_prob_b > 0.5, 
-                                 torch.tensor(1.0).to(device), 
-                                 torch.tensor(0.0).to(device))
-            y = torch.cat((y, y_b), 0)
-            b = torch.cat((b, b_b), 0)
-            y_prob = torch.cat((y_prob, y_prob_b), 0)
-            y_binary = torch.cat((y_binary, y_binary_b), 0)
-        ead = torch.mean(y[b==1]) - torch.mean(y[b==0])
-        ead_prob = torch.mean(y_prob[b==1]) - torch.mean(y_prob[b==0])
-        ead_binary = torch.mean(y_binary[b==1]) - torch.mean(y_binary[b==0])
-    return ead, ead_prob, ead_binary
-
-def train_epoch(model, device, train_loader, optimizer, epoch, verbose):
-    '''
-    Train the model for one epoch.
-
-    Args:
-        model: torch.nn.Module
-        device: str
-        train_loader: torch.utils.data.DataLoader
-        optimizer: torch.optim.Optimizer
-        epoch: int
-        verbose: bool
-    '''
-    model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target[3].to(device).float()
-        optimizer.zero_grad()
-        output = model(data)
-        loss = F.binary_cross_entropy_with_logits(output, target)
-        loss.backward()
-        optimizer.step()
-        if batch_idx % 100 == 0 and verbose:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss.item()))
-
-def training(finetuning=False, force_generation=False, subsampling="random", train_ratio=0.02,
-          normalize=False, verbose=True):
+def training(model,
+             dataset, 
+             train_ratio=0.9,
+             epochs=6,
+             lr=0.001,
+             batch_size=64,
+             k_inv=0.1,
+             method='ERM',
+             verbose=True,
+             log_dir='runs',
+             eval=True,
+             gpu=True):
+    # TODO: update description
     '''
     Train the model on the CausalMNIST dataset.
     
@@ -159,59 +33,114 @@ def training(finetuning=False, force_generation=False, subsampling="random", tra
 
     '''
     use_gpu = torch.cuda.is_available()
-    device = torch.device("gpu" if use_gpu else "cpu")
-    kwargs = {'num_workers': 1, 'pin_memory': True} if use_gpu else {}
-
-    all = CausalMNIST(root='./data', 
-                       env='all', 
-                       transform=transforms.ToTensor(),
-                       force_generation=force_generation,
-                       train_ratio=train_ratio,
-                       subsampling=subsampling,
-                       verbose=verbose)
-    model = ConvNet().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    if normalize:
-        mean = 0
-        std = 0
-        for img, _ in all:
-            mean += img.mean(dim=(1, 2))
-            std += img.std(dim=(1, 2))
-            mean /= len(all)
-            std /= len(all)
-        model.transformations = transforms.Compose([
-                                    transforms.ToTensor(),
-                                    transforms.Normalize(mean, std)])
+    if gpu:
+        device = torch.device("cuda" if use_gpu else "cpu")
     else:
-        model.transformations = transforms.Compose([transforms.ToTensor()])
-    if finetuning:
-        train_loader = torch.utils.data.DataLoader(
-            CausalMNIST(root='./data', 
-                        env='train',
-                        transform=model.transformations,
-                        subsampling=subsampling,
-                        verbose=verbose),
-            batch_size=64, shuffle=True, **kwargs)
-        
-        val_loader = torch.utils.data.DataLoader(
-            CausalMNIST(root='./data', 
-                        env='val',
-                        transform=model.transformations,
-                        subsampling=subsampling,
-                        verbose=verbose),
-            batch_size=1000, shuffle=True, **kwargs)
-    else:
-        train_loader = torch.utils.data.DataLoader(
-            CausalMNIST(root='./data', 
-                        env='train_full',
-                        transform=model.transformations,
-                        subsampling=subsampling,
-                        verbose=verbose),
-            batch_size=64, shuffle=True, **kwargs)
+        device = torch.device("cpu")
+    kwargs = {'num_workers': 4, 'pin_memory': True} if use_gpu else {}
+    model = model.to(device)
+    model.device = device
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), 
+                           lr=lr)
+    n_tr = int(train_ratio*len(dataset))
+    A = time.time()
+    train = dataset.data_label_tuples[:n_tr]
+    train_loader = torch.utils.data.DataLoader(train, 
+                                        batch_size=batch_size, 
+                                        shuffle=True, 
+                                        **kwargs)
+    B = time.time()
+    if method in ["CURL", "UCRL"]:
+        train_envs = []
+        for w in dataset.W.unique():
+            for u in dataset.U.unique():
+                for t in dataset.T.unique():
+                    mask = (dataset.W == w) & (dataset.U == u) & (dataset.T == t)
+                    if sum(mask) < batch_size:
+                        continue
+                    train_env = (dataset.X[mask], dataset.Y[mask])
+                    train_envs.append(train_env)
+        if verbose: print("Num Env.", len(train_envs))
+    # if method in ["CURL+"]:
+    #     train_envs = []
+    #     for t in dataset.T.unique():
+    #         train_env = (dataset.X[dataset.T == t], dataset.Y[dataset.T == t])
+    #         train_envs.append(train_env)
+    C = time.time()
+    if verbose: print(f"Data loading: {B-A:.2f}s")
+    if verbose: print(f"Data loading Multi-Env: {C-B:.2f}s")
+    writer = SummaryWriter(log_dir=f"{log_dir}/{method if 'ERM' in method else f'{method}_{k_inv}'}")  # Specify log directory
+    for epoch in range(epochs):
+        D = time.time()
+        model.train()
+        for batch_idx, (image, variables) in enumerate(train_loader):
+            I = time.time()
+            X, y = image.to(device).float(), variables[3].to(device).long()
+            optimizer.zero_grad()
+            output = model(X)
+            loss = torch.nn.CrossEntropyLoss()(output, y)
+            if method=="DERM":
+                loss = torch.nn.CrossEntropyLoss(reduction='none')(output, y)
+                yvar = variables[4].to(device).float()
+                oprob = variables[5].to(device).float()
+                weight = yvar/oprob
+                loss = (weight*loss).sum()
+            else:
+                loss = torch.nn.CrossEntropyLoss()(output, y)
+            F = time.time()
+            if method in ["CURL", "UCRL"]:
+                losses = []
+                for train_env in train_envs:
+                    idx = torch.randperm(len(train_env[0]))[:batch_size]
+                    X, y =  train_env[0][idx].to(device).float(), train_env[1][idx].to(device).float()
+                    if method=="CURL":
+                        output = model.cond_exp(X)
+                        loss_e = (y-output).mean()
+                    if method=="UCRL":
+                        output = model(X)
+                        loss_e = torch.nn.CrossEntropyLoss()(output, y.long())
+                    losses.append(loss_e)
+                loss_var = torch.var(torch.stack(losses))
+                loss += k_inv * loss_var
+            G = time.time()
+            loss.backward()
+            optimizer.step()
+            H = time.time()
+            if batch_idx % 100 == 0 and verbose:
+                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    epoch, batch_idx * len(X), len(train_loader.dataset),
+                        100. * batch_idx / len(train_loader), loss.item()))
+        E = time.time()
+        if verbose: print(f"Epoch {epoch} Train: {E-D:.2f}s")
+        if verbose: print(f"Epoch {epoch} Train Multi-Env Inference: {G-F:.2f}s")
+        if verbose: print(f"Epoch {epoch} Train Single Inference: {F-I:.2f}s")
+        if verbose: print(f"Epoch {epoch} Train Multi-Env Backward: {H-G:.2f}s")
+        if eval:
+            model.eval()
+            with torch.no_grad():
+                dataset.Y_hat = model(dataset.X.to(device)).max(axis=1)[1].cpu().numpy()
+                tr_acc = accuracy_score(dataset.Y[:n_tr], dataset.Y_hat[:n_tr])
+                tr_bal_acc = balanced_accuracy_score(dataset.Y[:n_tr], dataset.Y_hat[:n_tr])
+                val_acc = accuracy_score(dataset.Y[n_tr:], dataset.Y_hat[n_tr:])
+                val_bal_acc = balanced_accuracy_score(dataset.Y[n_tr:], dataset.Y_hat[n_tr:])
+                if verbose: print(f'Train Accuracy: {tr_acc:.3f}, Train Bal. Accuracy: {tr_bal_acc:.3f}')
+                if verbose: print(f'Val Accuracy: {val_acc:.3f}, Val Bal. Accuracy: {val_bal_acc:.3f}')
+                AD_ = compute_effect(dataset, method="AD", pred=True)
+                AIPW_ = compute_effect(dataset, method="AIPW", pred=True, total=True)
+                ATE = compute_effect(dataset, method="AIPW", pred=False, total=True)
+                if verbose: print(f'AD (pred): {AD_:.3f}, AIPW (pred): {AIPW_:.3f}, AIPW: {ATE:.3f}')
+                writer.add_scalar('Train - Accuracy', tr_acc, epoch)
+                writer.add_scalar('Train - Bal. Accuracy', tr_bal_acc, epoch)
+                writer.add_scalar('Val - Accuracy', val_acc, epoch)
+                writer.add_scalar('Val - Bal. Accuracy', val_bal_acc, epoch)
+                writer.add_scalar('AD', AD_, epoch)
+                writer.add_scalar('AIPW', AIPW_, epoch)
+                writer.add_scalar('ATE', ATE, epoch)
 
-    for epoch in range(6):
-        train_epoch(model, device, train_loader, optimizer, epoch, verbose)
-        evaluate(model, device, train_loader, verbose, set_name='train set')
-        if finetuning:
-            evaluate(model, device, val_loader, verbose, set_name='val set')
-    return model
+    writer.close()
+    # TODO: return best model
+    # TODO: save best model
+    return model   
+
+
+
