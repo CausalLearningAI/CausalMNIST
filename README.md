@@ -8,7 +8,7 @@ See Section 2 of the corresponding paper for a detailed description of the probl
 See Appendix D of the corresponding paper for a detailed description of the data generating process.
 
 #### Example
-![Example Image](./results/CausalMNIST/random/example.png)
+![Example Image](https://github.com/CausalLearningAI/CausalMNIST/blob/main/results/CausalMNIST/random/example.png)
 
 ## Reference
 
